@@ -1,0 +1,1522 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JAR Remasterizer — V6 Deep Scan</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+:root {
+  --bg:   #04040c;
+  --sf0:  #080812;
+  --sf1:  #0b0b18;
+  --sf2:  #0f0f1e;
+  --sf3:  #141426;
+  --bd:   #1a1a30;
+  --bd2:  #252545;
+  --bd3:  #313160;
+  --text: #ced0e8;
+  --text2:#6466a0;
+  --text3:#3a3c68;
+  --a:    #7b68ee;
+  --a2:   #9d8fff;
+  --a3:   #c4baff;
+  --ad:   rgba(123,104,238,0.10);
+  --ad2:  rgba(123,104,238,0.05);
+  --g:    #00c97d;
+  --gd:   rgba(0,201,125,0.10);
+  --am:   #e8a020;
+  --amd:  rgba(232,160,32,0.10);
+  --er:   #e84040;
+  --cy:   #20c8e8;
+  --cyd:  rgba(32,200,232,0.10);
+  --r:    14px;
+  --rsm:  9px;
+  --rxs:  6px;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+body{
+  background:var(--bg);color:var(--text);
+  font-family:'Inter',system-ui,sans-serif;
+  font-size:13px;line-height:1.5;
+  min-height:100vh;display:flex;flex-direction:column;
+  overflow-x:hidden;-webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 80% 55% at -5% -10%, rgba(90,72,200,0.055) 0%,transparent 55%),
+    radial-gradient(ellipse 55% 40% at 105% 105%,rgba(0,180,100,0.030) 0%,transparent 50%),
+    radial-gradient(ellipse 40% 30% at 50%  110%,rgba(90,72,200,0.025) 0%,transparent 60%);
+}
+body::after{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0.022;
+  background-image:linear-gradient(rgba(255,255,255,0.4) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.4) 1px,transparent 1px);
+  background-size:40px 40px;
+}
+
+.app-wrapper{
+  position:relative;z-index:1;
+  max-width:1420px;margin:0 auto;
+  width:100%;padding:32px 28px 56px;
+  display:flex;flex-direction:column;gap:28px;
+}
+
+/* ── HEADER ── */
+.header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;padding-bottom:24px;border-bottom:1px solid var(--bd)}
+.header-brand{display:flex;align-items:center;gap:14px}
+.header-icon{position:relative;width:44px;height:44px;background:linear-gradient(145deg,#5a48c8 0%,#7b68ee 50%,#9d8fff 100%);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.header-icon svg{position:relative;z-index:1;width:19px;height:19px;color:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.4))}
+.header-wordmark{display:flex;flex-direction:column;gap:3px}
+.header-title{font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;color:var(--text);letter-spacing:-0.4px;line-height:1}
+.header-title span{background:linear-gradient(90deg,var(--a2),var(--a3));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.header-sub{font-family:'JetBrains Mono',monospace;font-size:8.5px;color:var(--text3);letter-spacing:2.5px;text-transform:uppercase}
+
+.header-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+.badge-version{
+  font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;
+  background:var(--ad);border:1px solid var(--a);color:var(--a2);padding:4px 10px;border-radius:999px;
+}
+
+.status-pill{display:flex;align-items:center;gap:9px;background:var(--sf1);border:1px solid var(--bd);padding:7px 16px 7px 12px;border-radius:999px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.03)}
+.status-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;transition:background 0.35s,box-shadow 0.35s}
+.status-dot.ready{background:var(--g);box-shadow:0 0 0 3px rgba(0,201,125,0.15),0 0 10px rgba(0,201,125,0.4)}
+.status-dot.busy{background:var(--a2);box-shadow:0 0 0 3px rgba(157,143,255,0.15);animation:pulse 1.2s ease-in-out infinite}
+.status-dot.error{background:var(--er);box-shadow:0 0 8px rgba(232,64,64,0.4)}
+.status-label{font-family:'JetBrains Mono',monospace;font-size:8.5px;font-weight:400;letter-spacing:2px;text-transform:uppercase;color:var(--text2)}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.45}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ── GRID ── */
+.grid{display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.left-col,.right-col{display:flex;flex-direction:column;gap:14px}
+
+/* ── CARD ── */
+.card{
+  background:var(--sf1);border:1px solid var(--bd);border-radius:var(--r);padding:20px 22px;
+  box-shadow:0 1px 0 rgba(255,255,255,0.025) inset,0 16px 48px rgba(0,0,0,0.5),0 4px 16px rgba(0,0,0,0.3);
+  transition:border-color 0.25s,box-shadow 0.25s;animation:fadeIn 0.5s ease both;
+}
+.card-title{display:flex;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:500;letter-spacing:3px;text-transform:uppercase;color:var(--text3);margin-bottom:18px}
+.card-title svg{width:11px;height:11px;opacity:0.5;flex-shrink:0}
+
+/* ── UPLOAD ── */
+.upload-zone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:30px 20px;border:1px dashed var(--bd2);border-radius:var(--rsm);background:var(--sf2);cursor:pointer;position:relative;text-align:center;transition:background 0.2s,border-color 0.2s}
+.upload-zone:hover,.upload-zone.dragover{background:var(--ad2);border-color:var(--a)}
+.upload-zone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;z-index:2}
+.upload-icon{width:30px;height:30px;color:var(--text3);transition:color 0.2s,transform 0.25s}
+.upload-name{font-size:11.5px;font-weight:500;color:var(--text2)}
+.upload-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text3)}
+
+/* ── SETTINGS ── */
+.setting-row{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.setting-label{font-size:10px;font-weight:500;color:var(--text2);display:flex;align-items:center;gap:6px;letter-spacing:0.2px}
+select{background:var(--sf2);border:1px solid var(--bd);color:var(--text);font-family:'Inter',sans-serif;font-size:11px;font-weight:400;padding:9px 32px 9px 11px;border-radius:var(--rsm);outline:none;cursor:pointer;width:100%;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9' viewBox='0 0 24 24' fill='none' stroke='%236466a0' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center;transition:border-color 0.2s,background-color 0.2s}
+select:focus{border-color:var(--a);background-color:var(--sf3);outline:none}
+
+/* ── TOGGLE ── */
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--bd)}
+.toggle-row:last-of-type{border-bottom:none}
+.toggle-label{font-size:11px;font-weight:400;color:var(--text2);display:flex;align-items:center;gap:7px}
+.toggle{width:34px;height:18px;background:var(--sf3);border:1px solid var(--bd2);border-radius:999px;cursor:pointer;position:relative;transition:background 0.22s,border-color 0.22s;flex-shrink:0}
+.toggle.on{background:var(--a);border-color:var(--a);box-shadow:0 0 12px rgba(123,104,238,0.35)}
+.toggle::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;background:rgba(255,255,255,0.5);border-radius:50%;transition:left 0.22s,background 0.22s;box-shadow:0 1px 3px rgba(0,0,0,0.4)}
+.toggle.on::after{left:18px;background:#fff}
+
+/* ── ADV ── */
+.adv-btn{width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;cursor:pointer;color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:500;letter-spacing:2.5px;text-transform:uppercase;padding:12px 0 10px;border-top:1px solid var(--bd);margin-top:4px;transition:color 0.18s}
+.adv-btn:hover{color:var(--text2)}
+.adv-chevron{display:flex;align-items:center;transition:transform 0.25s;opacity:0.5}
+.adv-chevron.open{transform:rotate(180deg)}
+.adv-content{overflow:hidden;max-height:0;transition:max-height 0.35s ease}
+.adv-content.open{max-height:600px}
+.range-header{display:flex;justify-content:space-between;align-items:baseline;font-size:10px;color:var(--text2);margin-bottom:6px}
+.range-value{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--a2);font-weight:500}
+input[type=range]{width:100%;cursor:pointer;accent-color:var(--a);height:3px}
+
+/* ── BUTTONS ── */
+.btn-primary{position:relative;width:100%;overflow:hidden;background:linear-gradient(135deg,#5a48c8 0%,var(--a) 50%,var(--a2) 100%);color:#fff;font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;letter-spacing:0.3px;border:none;padding:13px 20px;border-radius:999px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 28px rgba(91,72,200,0.40),0 1px 0 rgba(255,255,255,0.15) inset;transition:box-shadow 0.2s,transform 0.15s,opacity 0.15s}
+.btn-primary svg{width:13px;height:13px;flex-shrink:0}
+.btn-primary:hover:not(:disabled){box-shadow:0 6px 36px rgba(91,72,200,0.55),0 1px 0 rgba(255,255,255,0.15) inset;transform:translateY(-1px)}
+.btn-primary:active:not(:disabled){transform:scale(0.975)}
+.btn-primary:disabled{opacity:0.28;cursor:not-allowed}
+
+/* ── PROGRESS ── */
+.progress-bar{width:100%;height:2px;background:var(--sf3);border-radius:1px;overflow:hidden;margin-top:8px}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--a),var(--a2));border-radius:1px;transition:width 0.25s ease;width:0%}
+.progress-meta{display:flex;justify-content:space-between;font-size:9px;color:var(--text3);font-family:'JetBrains Mono',monospace;margin-bottom:2px}
+
+/* ── SCAN STATS BAR ── */
+.scan-stats{
+  display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;
+}
+.stat-chip{
+  display:flex;align-items:center;gap:5px;
+  font-family:'JetBrains Mono',monospace;font-size:9px;
+  padding:4px 9px;border-radius:999px;
+  border:1px solid var(--bd2);background:var(--sf2);
+  color:var(--text2);
+}
+.stat-chip .dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.dot-sprite{background:#7b68ee}
+.dot-bg{background:#00c97d}
+.dot-text{background:#e8a020}
+.dot-ui{background:#20c8e8}
+.dot-skip{background:#e84040}
+
+/* ── ASSET LIST ── */
+.list-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.asset-count{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text3);letter-spacing:1px}
+.asset-list-wrap{max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:3px}
+.asset-list-wrap::-webkit-scrollbar{width:3px}
+.asset-list-wrap::-webkit-scrollbar-track{background:transparent}
+.asset-list-wrap::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+
+.asset-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:var(--rxs);cursor:pointer;transition:background 0.15s;min-width:0}
+.asset-item:hover{background:var(--sf2)}
+.asset-item.selected-row{background:var(--ad2);border:1px solid var(--ad)}
+.asset-item input[type=checkbox]{accent-color:var(--a);flex-shrink:0;cursor:pointer}
+.asset-name{flex:1;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.asset-method{font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--text3);flex-shrink:0;letter-spacing:0.5px}
+
+.badge-cat{font-family:'JetBrains Mono',monospace;font-size:7.5px;padding:2px 6px;border-radius:3px;flex-shrink:0;letter-spacing:0.5px;font-weight:500}
+.badge-sprite{background:rgba(123,104,238,0.15);color:var(--a2);border:1px solid rgba(123,104,238,0.25)}
+.badge-background{background:rgba(0,201,125,0.10);color:#00c97d;border:1px solid rgba(0,201,125,0.20)}
+.badge-ui{background:rgba(32,200,232,0.10);color:#20c8e8;border:1px solid rgba(32,200,232,0.20)}
+.badge-text{background:rgba(232,160,32,0.12);color:#e8a020;border:1px solid rgba(232,160,32,0.22)}
+.badge-icon{background:rgba(232,64,64,0.10);color:#e84040;border:1px solid rgba(232,64,64,0.20)}
+
+.empty-state{padding:24px;text-align:center;color:var(--text3);font-size:11px;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px}
+
+/* ── RIGHT PANELS ── */
+.panels-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.panels-grid{grid-template-columns:1fr}}
+
+/* ── LOG ── */
+.log-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.log-wrap{max-height:310px;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.log-wrap::-webkit-scrollbar{width:3px}
+.log-wrap::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:2px}
+.log-entry{display:flex;gap:8px;padding:4px 0;border-bottom:1px solid rgba(26,26,48,0.6);font-family:'JetBrains Mono',monospace;font-size:9px;line-height:1.4}
+.log-time{color:var(--text3);flex-shrink:0}
+.log-text{color:var(--text2);word-break:break-all}
+.log-entry.success .log-text{color:#00c97d}
+.log-entry.warning .log-text{color:#e8a020}
+.log-entry.error .log-text{color:#e84040}
+.log-entry.info .log-text{color:var(--a2)}
+.log-entry.skip .log-text{color:var(--text3)}
+.log-empty{padding:16px;text-align:center;color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:9px}
+.btn-clear{background:none;border:1px solid var(--bd2);color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:1.5px;text-transform:uppercase;padding:4px 10px;border-radius:var(--rxs);cursor:pointer;transition:color 0.15s,border-color 0.15s}
+.btn-clear:hover{color:var(--text2);border-color:var(--bd3)}
+
+/* ── DOWNLOAD ── */
+.dl-row{display:flex;align-items:center;gap:16px}
+.dl-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.dl-icon.wait{background:var(--sf2);border:1px solid var(--bd)}
+.dl-icon.done{background:var(--gd);border:1px solid rgba(0,201,125,0.25)}
+.dl-icon svg{width:16px;height:16px}
+.dl-info{flex:1;display:flex;flex-direction:column;gap:3px}
+.dl-title{font-size:12px;font-weight:500;color:var(--text)}
+.dl-sub{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text3)}
+.dl-actions{display:flex;align-items:center;gap:8px}
+.btn-download{display:flex;align-items:center;gap:7px;background:var(--gd);border:1px solid rgba(0,201,125,0.3);color:#00c97d;font-family:'Space Grotesk',sans-serif;font-size:11px;font-weight:600;padding:8px 16px;border-radius:999px;text-decoration:none;transition:background 0.2s,box-shadow 0.2s;white-space:nowrap}
+.btn-download:hover{background:rgba(0,201,125,0.18);box-shadow:0 0 20px rgba(0,201,125,0.2)}
+.btn-download svg{width:12px;height:12px}
+.btn-reset{background:none;border:1px solid var(--bd2);color:var(--text3);padding:8px 10px;border-radius:var(--rsm);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color 0.15s,color 0.15s}
+.btn-reset:hover{border-color:var(--er);color:var(--er)}
+.btn-reset svg{width:14px;height:14px}
+
+/* ── SCAN METHOD BADGE ── */
+.method-tag{
+  display:inline-flex;align-items:center;gap:4px;
+  font-family:'JetBrains Mono',monospace;font-size:7.5px;
+  padding:2px 7px;border-radius:3px;flex-shrink:0;
+  background:rgba(32,200,232,0.08);color:#20c8e8;
+  border:1px solid rgba(32,200,232,0.15);letter-spacing:0.5px;
+}
+</style>
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-brand">
+      <div class="header-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 22 22 7 12 2"/><line x1="12" y1="22" x2="12" y2="2"/><path d="M2 7l10 5 10-5"/></svg>
+      </div>
+      <div class="header-wordmark">
+        <div class="header-title">JAR <span>Remasterizer</span></div>
+        <div class="header-sub">Deep Scan · Math Ultimate · 1x SSAA</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="badge-version">V6</div>
+      <div class="status-pill">
+        <div class="status-dot ready" id="statusDot"></div>
+        <span class="status-label" id="statusLabel">Pronto</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN GRID -->
+  <div class="grid">
+
+    <!-- LEFT COL -->
+    <div class="left-col">
+
+      <!-- Upload -->
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Arquivo JAR
+        </div>
+        <label class="upload-zone" id="uploadZone">
+          <input type="file" id="fileInput" accept=".jar">
+          <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 15v4c0 1.1.9 2 2 2h14a2 2 0 002-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          <div class="upload-name" id="uploadName">Clique ou arraste o arquivo</div>
+          <div class="upload-hint">Suporte: .jar com assets visuais</div>
+        </label>
+      </div>
+
+      <!-- Scale -->
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+          Configurações de Escala
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">📐 Fator de Upscale</div>
+          <select id="scaleSelect">
+            <option value="1">1x — SSAA (mesmo tamanho, máx qualidade)</option>
+            <option value="2" selected>2x — Dobro de resolução</option>
+            <option value="3">3x — Triplo</option>
+            <option value="4">4x — Quádruplo</option>
+          </select>
+        </div>
+
+        <!-- Advanced -->
+        <button class="adv-btn" id="advBtn">
+          <span>Filtros Avançados</span>
+          <svg class="adv-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="adv-content" id="advContent">
+          <div style="padding-top:10px;display:flex;flex-direction:column;gap:14px;">
+
+            <div>
+              <div class="range-header"><span>🔬 Sharpen Adaptativo</span><span class="range-value" id="sharpenVal">0.8</span></div>
+              <input type="range" id="sharpenRange" min="0" max="2" step="0.1" value="0.8">
+            </div>
+
+            <div>
+              <div class="range-header"><span>🧮 Peso xBRZ vs Lanczos</span><span class="range-value" id="blendVal">0.6</span></div>
+              <input type="range" id="blendRange" min="0" max="1" step="0.05" value="0.6">
+              <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--text3);margin-top:3px;font-family:'JetBrains Mono',monospace"><span>← Suave</span><span>Nítido →</span></div>
+            </div>
+
+            <div>
+              <div class="range-header"><span>🌀 Raio Anti-Halo</span><span class="range-value" id="haloVal">1.2</span></div>
+              <input type="range" id="haloRange" min="0.5" max="3" step="0.1" value="1.2">
+            </div>
+
+            <div class="toggle-row">
+              <span class="toggle-label">🧩 Anti-Halo</span>
+              <button class="toggle on" id="toggleAntiHalo"></button>
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">🌈 Debanding</span>
+              <button class="toggle on" id="toggleDebanding"></button>
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">🔲 OLED Black Crush</span>
+              <button class="toggle on" id="toggleOled"></button>
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">🎛️ LCD Subpixel</span>
+              <button class="toggle on" id="toggleLcd"></button>
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">🎨 Palette Snap</span>
+              <button class="toggle on" id="togglePalette"></button>
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">✏️ AA Reconstruct</span>
+              <button class="toggle on" id="toggleAA"></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Process btn -->
+        <div style="margin-top:18px;">
+          <button class="btn-primary" id="processBtn" disabled>
+            <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Processar Assets
+          </button>
+          <div id="progressArea" style="display:none;margin-top:12px;">
+            <div class="progress-meta"><span>Progresso</span><span id="progressText">0/0</span></div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /left-col -->
+
+    <!-- RIGHT COL -->
+    <div class="right-col">
+
+      <!-- Scan Stats -->
+      <div class="card" id="scanStatsCard" style="display:none;">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+          Deep Scan — Resultado
+        </div>
+        <div class="scan-stats" id="scanStats"></div>
+        <div style="font-size:9px;color:var(--text3);font-family:'JetBrains Mono',monospace;">
+          Detecção por magic bytes + análise de conteúdo. Texto e ícone preservados intactos.
+        </div>
+      </div>
+
+      <!-- Assets + Log -->
+      <div class="panels-grid">
+        <div class="card">
+          <div class="list-header">
+            <div class="card-title" style="margin-bottom:0">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              Assets
+            </div>
+            <span class="asset-count" id="assetCount">0 encontrados</span>
+          </div>
+          <div class="asset-list-wrap" id="assetList">
+            <div class="empty-state">Nenhum asset. Carregue um JAR.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="log-header">
+            <div class="card-title" style="margin-bottom:0">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Log
+            </div>
+            <button class="btn-clear" id="clearLogs">Limpar</button>
+          </div>
+          <div class="log-wrap" id="logWrap"><div class="log-empty">Aguardando operações…</div></div>
+        </div>
+      </div>
+
+      <!-- Download -->
+      <div class="card">
+        <div class="dl-row">
+          <div class="dl-icon wait" id="dlIcon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#44446a" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <div class="dl-info">
+            <div class="dl-title">Status do Package</div>
+            <div class="dl-sub" id="dlSub">Processamento necessário</div>
+          </div>
+          <div class="dl-actions">
+            <a id="dlLink" class="btn-download" style="display:none" href="#" download="">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Baixar JAR Remasterizado
+            </a>
+            <button class="btn-reset" id="resetBtn" title="Limpar tudo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /right-col -->
+  </div><!-- /grid -->
+</div><!-- /app-wrapper -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+//  V6 WORKER — Deep Scan + 1x SSAA + Math Ultimate
+//  Pipeline: Magic Bytes → Content Classifier → Hybrid SSAA → Post-FX
+// ═══════════════════════════════════════════════════════════════════════════════
+const WORKER_CODE = `
+'use strict';
+
+// ─── CONSTANTES ───────────────────────────────────────────────────────────────
+const PI = Math.PI;
+const BRIGHTEN_SCANLINES = 28.0;
+const BRIGHTEN_LCD = 2.0;
+const RGBW = [14.352, 28.176, 5.472];
+
+// ─── UTILS BÁSICOS ────────────────────────────────────────────────────────────
+const cu8 = v => (v < 0 ? 0 : v > 255 ? 255 : v + 0.5 | 0);
+function pack(r,g,b,a) { return ((a&255)<<24)|((r&255)<<16)|((g&255)<<8)|(b&255); }
+function pR(p) { return (p>>>16)&255; }
+function pG(p) { return (p>>>8)&255; }
+function pB(p) { return p&255; }
+function pA(p) { return (p>>>24)&255; }
+function lum(p) { return 0.299*pR(p) + 0.587*pG(p) + 0.114*pB(p); }
+function diffYuv(c1,c2) {
+  const r1=pR(c1),g1=pG(c1),b1=pB(c1),r2=pR(c2),g2=pG(c2),b2=pB(c2);
+  const y1=0.299*r1+0.587*g1+0.114*b1, u1=-0.14713*r1-0.28886*g1+0.436*b1, v1=0.615*r1-0.51499*g1-0.10001*b1;
+  const y2=0.299*r2+0.587*g2+0.114*b2, u2=-0.14713*r2-0.28886*g2+0.436*b2, v2=0.615*r2-0.51499*g2-0.10001*b2;
+  return (y1-y2)*(y1-y2)+(u1-u2)*(u1-u2)+(v1-v2)*(v1-v2);
+}
+
+// ─── DEEP SCAN: CLASSIFICAÇÃO POR CONTEÚDO DE IMAGEM ─────────────────────────
+// Categorias: 'sprite' | 'background' | 'text' | 'icon' | 'ui'
+// 'text' e 'icon' → preservado sem modificação
+// Os outros → pipeline SSAA completo
+function deepClassify(imgData) {
+  const w = imgData.width, h = imgData.height, data = imgData.data;
+  const totalPx = w * h;
+  if (totalPx === 0) return 'ui';
+
+  // ── 1. Análise de paleta e transparência ────────────────────────────────
+  let transparentPx = 0, semiAlphaPx = 0, opaquePx = 0;
+  let minLum = 255, maxLum = 0;
+  const colorBuckets = new Set();
+  let extremeDarkPx = 0, extremeLightPx = 0;
+  let totalLum = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r=data[i], g=data[i+1], b=data[i+2], a=data[i+3];
+    if (a < 8) { transparentPx++; continue; }
+    if (a < 248) semiAlphaPx++;
+    else opaquePx++;
+    const l = 0.299*r + 0.587*g + 0.114*b;
+    totalLum += l;
+    if (l < minLum) minLum = l;
+    if (l > maxLum) maxLum = l;
+    if (l < 25) extremeDarkPx++;
+    if (l > 230) extremeLightPx++;
+    colorBuckets.add(((r>>3)<<10)|((g>>3)<<5)|(b>>3));
+  }
+  const visiblePx = opaquePx + semiAlphaPx;
+  if (visiblePx === 0) return 'ui';
+
+  const uniqueColors = colorBuckets.size;
+  const semiAlphaRatio = semiAlphaPx / visiblePx;
+  const transparentRatio = transparentPx / totalPx;
+  const extremeDarkRatio = extremeDarkPx / visiblePx;
+  const extremeLightRatio = extremeLightPx / visiblePx;
+  const lumRange = maxLum - minLum;
+  const avgLum = totalLum / visiblePx;
+
+  // ── 2. Análise de bordas e frequência espacial ───────────────────────────
+  let sharpEdges = 0, softEdges = 0, totalEdges = 0;
+  let horizontalRuns = 0; // linhas horizontais longas → provável texto
+  let runLen = 0, prevVal = -1;
+
+  for (let y = 0; y < h; y++) {
+    runLen = 0; prevVal = -1;
+    for (let x = 0; x < w; x++) {
+      const idx = (y*w+x)*4;
+      const a = data[idx+3];
+      const l = 0.299*data[idx]+0.587*data[idx+1]+0.114*data[idx+2];
+      const bin = (a < 128 || l < 128) ? 0 : 1;
+      if (bin === prevVal) { runLen++; if(runLen > 4) horizontalRuns++; }
+      else runLen = 1;
+      prevVal = bin;
+
+      if (x+1 < w) {
+        const idxR = (y*w+x+1)*4;
+        const lR = 0.299*data[idxR]+0.587*data[idxR+1]+0.114*data[idxR+2];
+        const aR = data[idxR+3];
+        totalEdges++;
+        const diff = Math.abs(l-lR) + Math.abs(a-aR)*0.5;
+        if (diff > 60) sharpEdges++;
+        else if (diff > 15) softEdges++;
+      }
+      if (y+1 < h) {
+        const idxD = ((y+1)*w+x)*4;
+        const lD = 0.299*data[idxD]+0.587*data[idxD+1]+0.114*data[idxD+2];
+        const aD = data[idxD+3];
+        totalEdges++;
+        const diff = Math.abs(l-lD) + Math.abs(a-aD)*0.5;
+        if (diff > 60) sharpEdges++;
+        else if (diff > 15) softEdges++;
+      }
+    }
+  }
+  const sharpRatio = totalEdges > 0 ? sharpEdges/totalEdges : 0;
+  const softRatio  = totalEdges > 0 ? softEdges/totalEdges : 0;
+  const horizRunRatio = (horizontalRuns) / Math.max(1, w*h);
+
+  // ── 3. Detecção de texto bitmap ──────────────────────────────────────────
+  // Texto bitmap tem: paleta muito pequena (2-8 cores), extremos de lum,
+  // alta proporção de transparente, bordas muito afiadas, runs horizontais,
+  // pouca semi-transparência, aspecto retangular com área pequena.
+  const isTextCandidate =
+    uniqueColors <= 16 &&
+    lumRange > 150 &&
+    (extremeDarkRatio + extremeLightRatio) > 0.75 &&
+    sharpRatio > 0.08 &&
+    semiAlphaRatio < 0.05 &&
+    transparentRatio > 0.3;
+
+  // Reforçar: se o aspecto for muito largo (banner de texto) ou muito alto (lista)
+  const aspect = w / h;
+  const isWide = aspect > 3.5;
+  const isNarrow = aspect < 0.3;
+
+  if (isTextCandidate && (isWide || isNarrow || (uniqueColors <= 8 && horizRunRatio > 0.05))) {
+    return 'text';
+  }
+
+  // ── 4. Detecção de ícone de app/jogo ────────────────────────────────────
+  // Ícone: tamanho quadrado pequeno (≤ 256), muito colorido, muito opaco
+  const isSquareSmall = w === h && w <= 256;
+  const isRichColor = uniqueColors > 80;
+  const isHighlyOpaque = transparentRatio < 0.15 && semiAlphaRatio < 0.1;
+  // Nome do arquivo verificado no lado do thread principal — aqui só analisamos conteúdo
+  if (isSquareSmall && isRichColor && isHighlyOpaque && w >= 16 && softRatio > 0.03) {
+    return 'icon';
+  }
+
+  // ── 5. Detecção de background / cenário ─────────────────────────────────
+  // Background: grande, muitas cores, gradientes suaves, pouca transparência
+  const isLarge = w >= 64 || h >= 64;
+  const isColorRich = uniqueColors > 48;
+  const isLowTransparency = transparentRatio < 0.1;
+  const isSoft = sharpRatio < 0.03 && softRatio > 0.02;
+  if (isLarge && isColorRich && isLowTransparency && isSoft) {
+    return 'background';
+  }
+
+  // ── 6. UI genérica (botões, barras, frames) ──────────────────────────────
+  const isSimple = uniqueColors < 28;
+  const isBinaryAlpha = semiAlphaRatio < 0.04;
+  if (isSimple && isBinaryAlpha && sharpRatio > 0.05) {
+    return 'ui';
+  }
+
+  // ── 7. Default: sprite ───────────────────────────────────────────────────
+  return 'sprite';
+}
+
+// ─── LANCZOS KERNEL ──────────────────────────────────────────────────────────
+function lanczosKernel(x, a=3) {
+  if (x === 0) return 1;
+  if (Math.abs(x) >= a) return 0;
+  const px = PI * x;
+  return (a * Math.sin(px) * Math.sin(px/a)) / (px * px);
+}
+function lanczosSample(src, w, h, px, py) {
+  const fx=Math.floor(px), fy=Math.floor(py);
+  let r=0,g=0,b=0,a=0,wSum=0;
+  const aL=3;
+  for (let j=-aL+1; j<=aL; j++) {
+    const sy=fy+j; if(sy<0||sy>=h) continue;
+    const wy=lanczosKernel(py-(sy+0.5),aL);
+    for (let i=-aL+1; i<=aL; i++) {
+      const sx=fx+i; if(sx<0||sx>=w) continue;
+      const wx=lanczosKernel(px-(sx+0.5),aL);
+      const wt=wx*wy;
+      const idx=(sy*w+sx)*4;
+      r+=src[idx]*wt; g+=src[idx+1]*wt; b+=src[idx+2]*wt; a+=src[idx+3]*wt;
+      wSum+=wt;
+    }
+  }
+  if(wSum>0) return new Uint8ClampedArray([r/wSum,g/wSum,b/wSum,a/wSum]);
+  return new Uint8ClampedArray([0,0,0,0]);
+}
+
+// ─── SPLINE36 KERNEL ─────────────────────────────────────────────────────────
+function s36w(x) {
+  const ax=Math.abs(x);
+  if(ax<1) return ((13/11*ax-453/209)*ax-3/209)*ax+1;
+  if(ax<2) return ((-6/11*ax+612/209)*ax-1038/209)*ax+540/209;
+  return ((1/11*ax-159/209)*ax+434/209)*ax-384/209;
+}
+function spline36Sample(src, w, h, px, py) {
+  const fx=Math.floor(px), fy=Math.floor(py);
+  let r=0,g=0,b=0,a=0,wSum=0;
+  for (let j=-2;j<=3;j++) {
+    const sy=fy+j; if(sy<0||sy>=h) continue;
+    const wy=s36w(Math.abs(py-(sy+0.5))+0.5);
+    for (let i=-2;i<=3;i++) {
+      const sx=fx+i; if(sx<0||sx>=w) continue;
+      const wx=s36w(Math.abs(px-(sx+0.5))+0.5);
+      const wt=wx*wy;
+      const idx=(sy*w+sx)*4;
+      r+=src[idx]*wt; g+=src[idx+1]*wt; b+=src[idx+2]*wt; a+=src[idx+3]*wt;
+      wSum+=wt;
+    }
+  }
+  if(wSum>0) return new Uint8ClampedArray([r/wSum,g/wSum,b/wSum,a/wSum]);
+  return new Uint8ClampedArray([0,0,0,0]);
+}
+
+// ─── XBRZ (edge-directed, 2x/3x/4x) ────────────────────────────────────────
+function xbrzScale(originalPixels, w, h, scale) {
+  const outW=w*scale, outH=h*scale;
+  const output=new Int32Array(outW*outH);
+  const get=(y,x)=>(y<0||y>=h||x<0||x>=w)?0:originalPixels[y*w+x];
+  const Ythr=(scale===2?55:scale===3?70:90);
+  const eq=(c1,c2)=>Math.abs(lum(c1)-lum(c2))<Ythr;
+  for(let y=0;y<h;y++) {
+    for(let x=0;x<w;x++) {
+      const A=get(y-1,x-1),B=get(y-1,x),C=get(y-1,x+1);
+      const D=get(y,x-1),E=get(y,x),F=get(y,x+1);
+      const G=get(y+1,x-1),H=get(y+1,x),I=get(y+1,x+1);
+      const outY=y*scale,outX=x*scale;
+      for(let dy=0;dy<scale;dy++) {
+        for(let dx=0;dx<scale;dx++) {
+          let val=E;
+          if(scale===2) {
+            if(dx===0&&dy===0) val=eq(E,F)&&eq(E,H)?F:(eq(E,F)?F:(eq(E,H)?H:E));
+            else if(dx===1&&dy===0) val=eq(E,F)&&eq(E,H)?H:(eq(E,F)?F:(eq(E,H)?H:E));
+            else if(dx===0&&dy===1) val=eq(E,F)&&eq(E,H)?B:(eq(E,B)?B:(eq(E,G)?G:E));
+            else val=eq(E,F)&&eq(E,H)?D:(eq(E,B)?B:(eq(E,G)?G:E));
+          } else if(scale===3) {
+            const w1=eq(E,F)?2:0, w2=eq(E,H)?2:0, w3=eq(E,B)?1:0, w4=eq(E,D)?1:0;
+            if(dx===1&&dy===1) val=w1+w2>0?(w1>w2?F:H):E;
+            else if(dx===2&&dy===0) val=w1>0?F:(w2>0?H:E);
+            else if(dx===0&&dy===2) val=w3>0?B:(w4>0?D:E);
+            else if(dx===1&&dy===0) val=w1>0?F:(w2>0?H:E);
+            else if(dx===0&&dy===1) val=w3>0?B:(w4>0?D:E);
+            else val=E;
+          } else {
+            const near=[F,H,B,D].sort((a,b)=>Math.abs(lum(a)-lum(E))-Math.abs(lum(b)-lum(E)))[0];
+            val=near;
+          }
+          output[(outY+dy)*outW+(outX+dx)]=val;
+        }
+      }
+    }
+  }
+  return output;
+}
+
+// ─── 5XBR ADAPTATIVO ────────────────────────────────────────────────────────
+function xbr5xAdaptive(originalPixels, w, h, scale, thrScale) {
+  thrScale = thrScale || 1.0;
+  const srcData=new Uint8ClampedArray(w*h*4);
+  for(let i=0;i<originalPixels.length;i++) {
+    const p=originalPixels[i],o=i*4;
+    srcData[o]=pR(p); srcData[o+1]=pG(p); srcData[o+2]=pB(p); srcData[o+3]=pA(p);
+  }
+  const outW=w*scale,outH=h*scale;
+  const output=new Int32Array(outW*outH);
+  const get=(y,x)=>(y<0||y>=h||x<0||x>=w)?0:originalPixels[y*w+x];
+  const EQ_THRESHOLD=10.0*thrScale;
+  const isSim=(c1,c2,thr)=>diffYuv(c1,c2)<thr;
+  const dot=(c)=>pR(c)*RGBW[0]+pG(c)*RGBW[1]+pB(c)*RGBW[2];
+
+  for(let y=0;y<h;y++) {
+    for(let x=0;x<w;x++) {
+      const spC=spline36Sample(srcData,w,h,x+0.5,y+0.5);
+      const eNN=get(y,x);
+      const splineDelta=Math.abs(pR(eNN)-spC[0])+Math.abs(pG(eNN)-spC[1])+Math.abs(pB(eNN)-spC[2]);
+      const adaptThr=Math.max(4.0,Math.min(EQ_THRESHOLD,EQ_THRESHOLD-splineDelta*8.0));
+      const A=get(y-1,x-1),B=get(y-1,x),C=get(y-1,x+1);
+      const D=get(y,x-1),E=get(y,x),F=get(y,x+1);
+      const G=get(y+1,x-1),H=get(y+1,x),I=get(y+1,x+1);
+      const eq2=(a,b)=>isSim(a,b,adaptThr*adaptThr*10);
+      const neq=(a,b)=>!eq2(a,b);
+      const eV=dot(E);
+      const irlv0=Math.abs(eV-dot(F))>0.001&&Math.abs(eV-dot(H))>0.001;
+      let res1=E,res2=E;
+      if(irlv0) {
+        const w1d=[Math.abs(eV-dot(F)),Math.abs(eV-dot(B)),Math.abs(eV-dot(D)),Math.abs(eV-dot(H))];
+        const w2d=[Math.abs(eV-dot(H)),Math.abs(eV-dot(F)),Math.abs(eV-dot(B)),Math.abs(eV-dot(D))];
+        const px=w1d.map((v,i)=>v<=w2d[i]?1:0);
+        const irlv1=irlv0&&((neq(F,B)&&neq(F,C))||(neq(H,D)&&neq(H,G))||eq2(E,I)||eq2(E,G)||eq2(E,C));
+        if(irlv1){res1=px[0]?H:F; res2=px[1]?F:B;}
+      }
+      const xbrOut=diffYuv(E,res1)<diffYuv(E,res2)?res1:res2;
+      const rS=spC[0],gS=spC[1],bS=spC[2];
+      const finalColor=pack(
+        cu8(pR(xbrOut)*0.7+rS*0.3),
+        cu8(pG(xbrOut)*0.7+gS*0.3),
+        cu8(pB(xbrOut)*0.7+bS*0.3),255
+      );
+      const baseY=y*scale,baseX=x*scale;
+      for(let dy=0;dy<scale;dy++) for(let dx=0;dx<scale;dx++)
+        output[(baseY+dy)*outW+(baseX+dx)]=finalColor;
+    }
+  }
+  return output;
+}
+
+// ─── HYBRID UPSCALE (peso adaptativo por categoria) ─────────────────────────
+// blendXbrz: 0=todo Lanczos, 1=todo xBRZ. Default 0.6 para sprites.
+function hybridUpscale(originalPixels, w, h, scale, category, blendXbrz) {
+  blendXbrz = blendXbrz !== undefined ? blendXbrz : 0.6;
+  const srcData=new Uint8ClampedArray(w*h*4);
+  for(let i=0;i<originalPixels.length;i++) {
+    const p=originalPixels[i],o=i*4;
+    srcData[o]=pR(p); srcData[o+1]=pG(p); srcData[o+2]=pB(p); srcData[o+3]=pA(p);
+  }
+  const outW=w*scale,outH=h*scale;
+
+  // Pesos por categoria
+  let wLanczos, wSpline, wXbrz, wFivebr;
+  if(category==='background') {
+    // Backgrounds: mais Lanczos/Spline (suave, preserva gradientes)
+    wLanczos=0.35; wSpline=0.40; wXbrz=0.15; wFivebr=0.10;
+  } else if(category==='ui') {
+    // UI: mais edge-directed
+    wLanczos=0.15; wSpline=0.15; wXbrz=0.40; wFivebr=0.30;
+  } else {
+    // Sprite (default) — balanceado com leve favorecimento ao edge
+    const edge = blendXbrz;
+    const smooth = 1.0 - edge;
+    wLanczos=smooth*0.55; wSpline=smooth*0.45; wXbrz=edge*0.60; wFivebr=edge*0.40;
+  }
+
+  // Calcular upscales
+  const lanczosImg=new Int32Array(outW*outH);
+  const splineImg =new Int32Array(outW*outH);
+  for(let y=0;y<outH;y++) {
+    for(let x=0;x<outW;x++) {
+      const px=(x+0.5)/scale-0.5, py=(y+0.5)/scale-0.5;
+      const lc=lanczosSample(srcData,w,h,px,py);
+      const sc=spline36Sample(srcData,w,h,px,py);
+      lanczosImg[y*outW+x]=pack(lc[0],lc[1],lc[2],lc[3]);
+      splineImg[y*outW+x] =pack(sc[0],sc[1],sc[2],sc[3]);
+    }
+  }
+  const xbrzImg  =xbrzScale(originalPixels,w,h,scale);
+  const fivebrImg=xbr5xAdaptive(originalPixels,w,h,scale,0.9);
+
+  // Fusão ponderada
+  const output=new Int32Array(outW*outH);
+  for(let i=0;i<output.length;i++) {
+    const l=lanczosImg[i],s=splineImg[i],x=xbrzImg[i],f=fivebrImg[i];
+    output[i]=pack(
+      cu8(pR(l)*wLanczos + pR(s)*wSpline + pR(x)*wXbrz + pR(f)*wFivebr),
+      cu8(pG(l)*wLanczos + pG(s)*wSpline + pG(x)*wXbrz + pG(f)*wFivebr),
+      cu8(pB(l)*wLanczos + pB(s)*wSpline + pB(x)*wXbrz + pB(f)*wFivebr),
+      255
+    );
+  }
+  return output;
+}
+
+// ─── 1x SSAA: SUPERSAMPLING NO MESMO TAMANHO ─────────────────────────────────
+// Upscale interno 2x → aplicar todos os filtros → downsample 2x de volta
+// Resultado: mesmo tamanho, mas antialiasing e melhoria de qualidade
+function ssaaProcess(imgData, category, settings) {
+  const w=imgData.width, h=imgData.height;
+  const data=imgData.data;
+  const srcPixels=new Int32Array(w*h);
+  for(let i=0;i<srcPixels.length;i++) {
+    const o=i*4;
+    srcPixels[i]=pack(data[o],data[o+1],data[o+2],data[o+3]);
+  }
+
+  // ── Passo 1: Upscale 2x interno ─────────────────────────────────────────
+  const blend = settings.blendXbrz !== undefined ? settings.blendXbrz : 0.6;
+  let upPixels=hybridUpscale(srcPixels,w,h,2,category,blend);
+  const upW=w*2, upH=h*2;
+  const upArr=new Uint8ClampedArray(upW*upH*4);
+  for(let i=0;i<upPixels.length;i++) {
+    const p=upPixels[i],o=i*4;
+    upArr[o]=pR(p); upArr[o+1]=pG(p); upArr[o+2]=pB(p); upArr[o+3]=pA(p);
+  }
+  const upData={data:upArr,width:upW,height:upH};
+
+  // ── Passo 2: LCD ─────────────────────────────────────────────────────────
+  if(settings.lcd!==false) applyLCD(upData,upW,upH);
+
+  // ── Passo 3: Silhouette map ───────────────────────────────────────────────
+  const smap=buildSilhouetteMap(upArr,upW,upH);
+
+  // ── Passo 4: Adaptive Unsharp ────────────────────────────────────────────
+  const sharpenAmt=settings.sharpen!==undefined?settings.sharpen:0.8;
+  if(sharpenAmt>0) {
+    adaptiveUnsharp(upData,sharpenAmt);
+    for(let i=0;i<smap.length;i++) {
+      if(smap[i]===2) { const o=i*4; upArr[o]=cu8(upArr[o]*1.08); upArr[o+1]=cu8(upArr[o+1]*1.08); upArr[o+2]=cu8(upArr[o+2]*1.08); }
+    }
+  }
+
+  // ── Passo 5: Filtros pós ─────────────────────────────────────────────────
+  if(settings.aaReconstruct!==false) reconstructAA(upData);
+  if(settings.antiHalo!==false) antiHalo(upData,settings.haloRadius||1.2);
+  if(settings.debanding!==false) deband(upData);
+  if(settings.paletteSnap!==false) paletteSnap(upData,settings.snapTol||24);
+
+  // ── Passo 6: OLED ─────────────────────────────────────────────────────────
+  if(settings.oled) {
+    const d=upArr;
+    for(let i=0;i<d.length;i+=4) {
+      if(d[i]<18&&d[i+1]<18&&d[i+2]<18){d[i]=0;d[i+1]=0;d[i+2]=0;}
+      const r=d[i],g=d[i+1],b=d[i+2];
+      const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+      if(mx>0&&(mx-mn)/mx>0.3&&mx>60){d[i]=cu8(r*1.25);d[i+1]=cu8(g*1.25);d[i+2]=cu8(b*1.25);}
+    }
+  }
+
+  // ── Passo 7: Downsample 2x → tamanho original (média de 4 pixels) ────────
+  // Box filter 2x2 → máxima qualidade de downsampling
+  const outArr=new Uint8ClampedArray(w*h*4);
+  for(let y=0;y<h;y++) {
+    for(let x=0;x<w;x++) {
+      const sx=x*2, sy=y*2;
+      const i0=(sy*upW+sx)*4;
+      const i1=(sy*upW+sx+1)*4;
+      const i2=((sy+1)*upW+sx)*4;
+      const i3=((sy+1)*upW+sx+1)*4;
+      const o=(y*w+x)*4;
+      outArr[o]  =cu8((upArr[i0]  +upArr[i1]  +upArr[i2]  +upArr[i3]  )*0.25);
+      outArr[o+1]=cu8((upArr[i0+1]+upArr[i1+1]+upArr[i2+1]+upArr[i3+1])*0.25);
+      outArr[o+2]=cu8((upArr[i0+2]+upArr[i1+2]+upArr[i2+2]+upArr[i3+2])*0.25);
+      outArr[o+3]=cu8((upArr[i0+3]+upArr[i1+3]+upArr[i2+3]+upArr[i3+3])*0.25);
+    }
+  }
+  return new ImageData(outArr,w,h);
+}
+
+// ─── LCD SHARPENING ──────────────────────────────────────────────────────────
+function applyLCD(imgData, width, height) {
+  const data=imgData.data;
+  const invY=1.0/(BRIGHTEN_SCANLINES+1.0), invX=1.0/(BRIGHTEN_LCD+1.0);
+  for(let y=0;y<height;y++) {
+    const ay=2.0*PI*(y-0.25);
+    const yf=(BRIGHTEN_SCANLINES+Math.sin(ay))*invY;
+    for(let x=0;x<width;x++) {
+      const ax=2.0*PI*(x-0.25);
+      const xf=(BRIGHTEN_LCD+Math.sin(ax))*invX;
+      const idx=(y*width+x)*4;
+      data[idx]  =Math.min(255,data[idx]  *yf*xf);
+      data[idx+1]=Math.min(255,data[idx+1]*yf*xf);
+      data[idx+2]=Math.min(255,data[idx+2]*yf*xf);
+    }
+  }
+}
+
+// ─── SILHOUETTE MAP ───────────────────────────────────────────────────────────
+function buildSilhouetteMap(data, w, h) {
+  const map=new Uint8Array(w*h);
+  for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++) {
+    const a=data[(y*w+x)*4+3];
+    if(a<10) continue;
+    let onEdge=false;
+    for(let dy=-1;dy<=1&&!onEdge;dy++) for(let dx=-1;dx<=1&&!onEdge;dx++) {
+      if(dx===0&&dy===0) continue;
+      if(data[((y+dy)*w+(x+dx))*4+3]<10) onEdge=true;
+    }
+    map[y*w+x]=onEdge?2:1;
+  }
+  return map;
+}
+
+// ─── ADAPTIVE UNSHARP ────────────────────────────────────────────────────────
+function adaptiveUnsharp(imgData, amount) {
+  const {data,width:w,height:h}=imgData;
+  const orig=new Uint8ClampedArray(data);
+  for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++) {
+    const idx=(y*w+x)*4;
+    if(orig[idx+3]<10) continue;
+    let sr=0,sg=0,sb=0;
+    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) {
+      const i2=((y+dy)*w+(x+dx))*4;
+      sr+=orig[i2]; sg+=orig[i2+1]; sb+=orig[i2+2];
+    }
+    sr/=9; sg/=9; sb/=9;
+    const dr=orig[idx]-sr,dg=orig[idx+1]-sg,db=orig[idx+2]-sb;
+    const grad=Math.sqrt(dr*dr+dg*dg+db*db);
+    const strength=Math.min(amount,amount*(grad/40));
+    data[idx]  =cu8(orig[idx]  +strength*dr);
+    data[idx+1]=cu8(orig[idx+1]+strength*dg);
+    data[idx+2]=cu8(orig[idx+2]+strength*db);
+  }
+}
+
+// ─── DEBAND ───────────────────────────────────────────────────────────────────
+function deband(imgData) {
+  const {data,width:w,height:h}=imgData;
+  for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++) {
+    const idx=(y*w+x)*4;
+    if(data[idx+3]<10) continue;
+    for(let c=0;c<3;c++) {
+      const v=data[idx+c];
+      const avg=(data[((y-1)*w+x)*4+c]+data[((y+1)*w+x)*4+c]+data[(y*w+x+1)*4+c]+data[(y*w+x-1)*4+c])/4;
+      if(Math.abs(v-avg)<8) data[idx+c]=cu8(v*0.7+avg*0.3);
+    }
+  }
+}
+
+// ─── ANTI-HALO ────────────────────────────────────────────────────────────────
+function antiHalo(imgData, radius) {
+  const {data,width:w,height:h}=imgData;
+  const orig=new Uint8ClampedArray(data);
+  const r=Math.max(1,Math.ceil(radius)|0);
+  for(let y=r;y<h-r;y++) for(let x=r;x<w-r;x++) {
+    const idx=(y*w+x)*4;
+    if(orig[idx+3]<10) continue;
+    const l0=0.299*orig[idx]+0.587*orig[idx+1]+0.114*orig[idx+2];
+    let maxNL=-1,minNL=256;
+    for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++) {
+      if(dx===0&&dy===0) continue;
+      const i2=((y+dy)*w+(x+dx))*4;
+      if(orig[i2+3]<10) continue;
+      const nl=0.299*orig[i2]+0.587*orig[i2+1]+0.114*orig[i2+2];
+      if(nl>maxNL) maxNL=nl; if(nl<minNL) minNL=nl;
+    }
+    if(l0>maxNL+15||l0<minNL-15) {
+      const t=0.45,avg=((maxNL+minNL)/2)/Math.max(1,l0);
+      data[idx]  =cu8(orig[idx]  *(1-t)+orig[idx]  *avg*t);
+      data[idx+1]=cu8(orig[idx+1]*(1-t)+orig[idx+1]*avg*t);
+      data[idx+2]=cu8(orig[idx+2]*(1-t)+orig[idx+2]*avg*t);
+    }
+  }
+}
+
+// ─── AA RECONSTRUCT ───────────────────────────────────────────────────────────
+function isAAPixel(data,w,h,x,y) {
+  const idx=(y*w+x)*4,a=data[idx+3];
+  if(a>10&&a<245) return true;
+  if(a===0||a===255) {
+    const r=data[idx],g=data[idx+1],b=data[idx+2];
+    let diffs=0;
+    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) {
+      if(dx===0&&dy===0||y+dy<0||y+dy>=h||x+dx<0||x+dx>=w) continue;
+      const i2=((y+dy)*w+(x+dx))*4;
+      if(Math.abs(r-data[i2])+Math.abs(g-data[i2+1])+Math.abs(b-data[i2+2])>80) diffs++;
+    }
+    return diffs>=3&&diffs<=6;
+  }
+  return false;
+}
+function reconstructAA(imgData) {
+  const {data,width:w,height:h}=imgData;
+  for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++) {
+    if(!isAAPixel(data,w,h,x,y)) continue;
+    const idx=(y*w+x)*4;
+    let sr=0,sg=0,sb=0,cnt=0;
+    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) {
+      const i2=((y+dy)*w+(x+dx))*4;
+      if(data[i2+3]<10) continue;
+      sr+=data[i2]; sg+=data[i2+1]; sb+=data[i2+2]; cnt++;
+    }
+    if(cnt>0) {
+      data[idx]  =cu8(data[idx]  *0.5+sr/cnt*0.5);
+      data[idx+1]=cu8(data[idx+1]*0.5+sg/cnt*0.5);
+      data[idx+2]=cu8(data[idx+2]*0.5+sb/cnt*0.5);
+    }
+  }
+}
+
+// ─── PALETTE SNAP ────────────────────────────────────────────────────────────
+function paletteSnap(imgData, tol) {
+  const data=imgData.data;
+  const buckets=new Map();
+  for(let i=0;i<data.length;i+=4) {
+    if(data[i+3]<10) continue;
+    const key=((data[i]>>3)<<10)|((data[i+1]>>3)<<5)|(data[i+2]>>3);
+    buckets.set(key,(buckets.get(key)||0)+1);
+  }
+  const palette=[...buckets.entries()].sort((a,b)=>b[1]-a[1]).slice(0,256)
+    .map(([k])=>[(k>>10)<<3,(k>>5&31)<<3,(k&31)<<3]);
+  const tol2=tol*tol*3;
+  for(let i=0;i<data.length;i+=4) {
+    if(data[i+3]<10) continue;
+    const r=data[i],g=data[i+1],b=data[i+2];
+    let best=-1,bestD=tol2;
+    for(let j=0;j<palette.length;j++) {
+      const dr=r-palette[j][0],dg=g-palette[j][1],db=b-palette[j][2];
+      const d=dr*dr+dg*dg+db*db;
+      if(d<bestD){bestD=d;best=j;}
+    }
+    if(best>=0) {
+      const t=0.55;
+      data[i]  =cu8(r*(1-t)+palette[best][0]*t);
+      data[i+1]=cu8(g*(1-t)+palette[best][1]*t);
+      data[i+2]=cu8(b*(1-t)+palette[best][2]*t);
+    }
+  }
+}
+
+// ─── WORKER MAIN ─────────────────────────────────────────────────────────────
+self.onmessage = async function(e) {
+  const { imageBuffer, settings, id, category: preCategory } = e.data;
+  try {
+    const blob = new Blob([imageBuffer]);
+    const img  = await createImageBitmap(blob);
+    const w=img.width, h=img.height;
+    const canvas=new OffscreenCanvas(w,h);
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(img,0,0);
+    const imgData=ctx.getImageData(0,0,w,h);
+
+    // Classificação final (conteúdo tem prioridade sobre heurística prévia)
+    const category = preCategory || deepClassify(imgData);
+
+    let result;
+
+    // ── TEXTO E ÍCONE: preservar intacto ─────────────────────────────────
+    if(category==='text'||category==='icon') {
+      const outCanvas=new OffscreenCanvas(w,h);
+      outCanvas.getContext('2d').putImageData(imgData,0,0);
+      const outBlob=await outCanvas.convertToBlob({type:'image/png'});
+      const outBuf=await outBlob.arrayBuffer();
+      self.postMessage({id,success:true,buffer:outBuf,width:w,height:h,category,preserved:true},[outBuf]);
+      return;
+    }
+
+    // ── ESCALA: 1x SSAA ou Nx normal ────────────────────────────────────
+    const scale = settings.scale || 1;
+
+    if(scale === 1) {
+      // ── 1x SSAA: processa e devolve no mesmo tamanho ─────────────────
+      result = ssaaProcess(imgData, category, settings);
+    } else {
+      // ── Nx: upscale direto com pipeline completo ─────────────────────
+      const srcPixels=new Int32Array(w*h);
+      const srcD=imgData.data;
+      for(let i=0;i<srcPixels.length;i++){const o=i*4;srcPixels[i]=pack(srcD[o],srcD[o+1],srcD[o+2],srcD[o+3]);}
+      const blend=settings.blendXbrz!==undefined?settings.blendXbrz:0.6;
+      const hybridPixels=hybridUpscale(srcPixels,w,h,scale,category,blend);
+      const outW=w*scale,outH=h*scale;
+      const outArr=new Uint8ClampedArray(outW*outH*4);
+      for(let i=0;i<hybridPixels.length;i++){const p=hybridPixels[i],o=i*4;outArr[o]=pR(p);outArr[o+1]=pG(p);outArr[o+2]=pB(p);outArr[o+3]=pA(p);}
+      result=new ImageData(outArr,outW,outH);
+      // Post-FX
+      if(settings.lcd!==false) applyLCD({data:result.data,width:outW,height:outH},outW,outH);
+      const smap=buildSilhouetteMap(result.data,outW,outH);
+      const sh=settings.sharpen!==undefined?settings.sharpen:0.8;
+      if(sh>0){adaptiveUnsharp({data:result.data,width:outW,height:outH},sh);const d=result.data;for(let i=0;i<smap.length;i++){if(smap[i]===2){const o=i*4;d[o]=cu8(d[o]*1.08);d[o+1]=cu8(d[o+1]*1.08);d[o+2]=cu8(d[o+2]*1.08);}}}
+      if(settings.aaReconstruct!==false) reconstructAA({data:result.data,width:outW,height:outH});
+      if(settings.antiHalo!==false) antiHalo({data:result.data,width:outW,height:outH},settings.haloRadius||1.2);
+      if(settings.debanding!==false) deband({data:result.data,width:outW,height:outH});
+      if(settings.paletteSnap!==false) paletteSnap({data:result.data,width:outW,height:outH},settings.snapTol||24);
+      if(settings.oled){const d=result.data;for(let i=0;i<d.length;i+=4){if(d[i]<18&&d[i+1]<18&&d[i+2]<18){d[i]=0;d[i+1]=0;d[i+2]=0;}const r=d[i],g=d[i+1],b=d[i+2];const mx=Math.max(r,g,b),mn=Math.min(r,g,b);if(mx>0&&(mx-mn)/mx>0.3&&mx>60){d[i]=cu8(r*1.25);d[i+1]=cu8(g*1.25);d[i+2]=cu8(b*1.25);}}}
+    }
+
+    const outCanvas=new OffscreenCanvas(result.width,result.height);
+    outCanvas.getContext('2d').putImageData(result,0,0);
+    const outBlob=await outCanvas.convertToBlob({type:'image/png'});
+    const outBuf=await outBlob.arrayBuffer();
+    self.postMessage({id,success:true,buffer:outBuf,width:result.width,height:result.height,category,preserved:false},[outBuf]);
+  } catch(err) {
+    self.postMessage({id,success:false,error:err.message});
+  }
+};
+`;
+
+const workerBlob = new Blob([WORKER_CODE], { type: 'application/javascript' });
+const WORKER_URL = URL.createObjectURL(workerBlob);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  MAGIC BYTES DETECTOR — identifica formato real pelo cabeçalho binário
+//  Não depende de extensão de arquivo
+// ═══════════════════════════════════════════════════════════════════════════════
+function detectImageByMagicBytes(buffer) {
+  const b = new Uint8Array(buffer.slice(0, 16));
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if(b[0]===0x89&&b[1]===0x50&&b[2]===0x4E&&b[3]===0x47) return 'png';
+  // JPEG: FF D8 FF
+  if(b[0]===0xFF&&b[1]===0xD8&&b[2]===0xFF) return 'jpeg';
+  // GIF87a / GIF89a
+  if(b[0]===0x47&&b[1]===0x49&&b[2]===0x46&&b[3]===0x38) return 'gif';
+  // BMP: 42 4D
+  if(b[0]===0x42&&b[1]===0x4D) return 'bmp';
+  // WebP: 52 49 46 46 ... 57 45 42 50
+  if(b[0]===0x52&&b[1]===0x49&&b[2]===0x46&&b[3]===0x46&&b[8]===0x57&&b[9]===0x45&&b[10]===0x42&&b[11]===0x50) return 'webp';
+  // TGA: não tem magic bytes universais — heurística pelo cabeçalho de 18 bytes
+  // ImageType em b[2]: 1,2,3,9,10,11 = TGA válido
+  if([1,2,3,9,10,11].includes(b[2])&&b[1]<=1) return 'tga';
+  // ICO: 00 00 01 00
+  if(b[0]===0x00&&b[1]===0x00&&b[2]===0x01&&b[3]===0x00) return 'ico';
+  // DDS: 44 44 53 20
+  if(b[0]===0x44&&b[1]===0x44&&b[2]===0x53&&b[3]===0x20) return 'dds';
+  // PCX: 0A
+  if(b[0]===0x0A&&(b[1]===0||b[1]===2||b[1]===3||b[1]===4||b[1]===5)) return 'pcx';
+  return null;
+}
+
+// Formatos que o browser consegue decodificar diretamente via createImageBitmap
+const DECODABLE_FORMATS = new Set(['png','jpeg','gif','bmp','webp','ico']);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ESTADO
+// ═══════════════════════════════════════════════════════════════════════════════
+let state = {
+  jarFile: null,
+  zip: null,
+  assets: [],          // { name, selected, category, format, contentCategory }
+  isProcessing: false,
+  progress: { current: 0, total: 0 },
+  downloadUrl: null,
+  status: 'ready',
+  scanStats: { sprite:0, background:0, text:0, ui:0, icon:0, skip:0 },
+  settings: {
+    scale: 1,
+    oled: true,
+    lcd: true,
+    sharpen: 0.8,
+    antiHalo: true,
+    haloRadius: 1.2,
+    debanding: true,
+    paletteSnap: true,
+    snapTol: 24,
+    aaReconstruct: true,
+    blendXbrz: 0.6
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  UI HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+function setStatus(s) {
+  state.status = s;
+  document.getElementById('statusDot').className = 'status-dot ' + s;
+  document.getElementById('statusLabel').textContent = s==='ready'?'Pronto':s==='busy'?'Processando':'Erro';
+}
+
+function addLog(text, type='info') {
+  const wrap = document.getElementById('logWrap');
+  if(wrap.querySelector('.log-empty')) wrap.innerHTML = '';
+  const t = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const div = document.createElement('div');
+  div.className = 'log-entry ' + type;
+  div.innerHTML = `<span class="log-time">[${t}]</span><span class="log-text">${text}</span>`;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function renderScanStats() {
+  const card = document.getElementById('scanStatsCard');
+  const bar  = document.getElementById('scanStats');
+  const s = state.scanStats;
+  const total = s.sprite+s.background+s.text+s.ui+s.icon+s.skip;
+  if(!total) { card.style.display='none'; return; }
+  card.style.display='block';
+  const items = [
+    { label:'Sprite',      count:s.sprite,     cls:'dot-sprite' },
+    { label:'Background',  count:s.background, cls:'dot-bg' },
+    { label:'Texto',       count:s.text,       cls:'dot-text' },
+    { label:'UI',          count:s.ui,         cls:'dot-ui' },
+    { label:'Ícone',       count:s.icon,       cls:'dot-ui' },
+    { label:'Ignorado',    count:s.skip,       cls:'dot-skip' },
+  ];
+  bar.innerHTML = items.filter(i=>i.count>0).map(i=>
+    `<div class="stat-chip"><div class="dot ${i.cls}"></div>${i.label}: ${i.count}</div>`
+  ).join('');
+}
+
+function renderAssets() {
+  const list = document.getElementById('assetList');
+  document.getElementById('assetCount').textContent = state.assets.length + ' encontrados';
+  if(!state.assets.length) {
+    list.innerHTML = '<div class="empty-state">Nenhum asset encontrado.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  state.assets.forEach((a,i) => {
+    const row = document.createElement('div');
+    row.className = 'asset-item';
+    row.onclick = () => { state.assets[i].selected = !state.assets[i].selected; renderAssets(); };
+
+    const cb = document.createElement('input'); cb.type='checkbox'; cb.checked=a.selected;
+    cb.onclick = e => { e.stopPropagation(); state.assets[i].selected=e.target.checked; };
+
+    const name = document.createElement('span'); name.className='asset-name'; name.textContent=a.name;
+
+    const cat = document.createElement('span');
+    const catKey = a.contentCategory || a.category || 'sprite';
+    cat.className = 'badge-cat badge-' + catKey;
+    cat.textContent = catKey.toUpperCase();
+
+    const fmt = document.createElement('span');
+    fmt.className = 'asset-method';
+    fmt.textContent = (a.format || '?').toUpperCase();
+
+    row.appendChild(cb); row.appendChild(name); row.appendChild(fmt); row.appendChild(cat);
+    list.appendChild(row);
+  });
+}
+
+function updateProgress() {
+  const area = document.getElementById('progressArea');
+  if(state.isProcessing) {
+    area.style.display='block';
+    document.getElementById('progressText').textContent = state.progress.current+'/'+state.progress.total;
+    document.getElementById('progressFill').style.width = (state.progress.total>0?(state.progress.current/state.progress.total)*100:0)+'%';
+  } else {
+    area.style.display='none';
+  }
+}
+
+function updateDownload() {
+  const link=document.getElementById('dlLink'), icon=document.getElementById('dlIcon'), sub=document.getElementById('dlSub');
+  if(state.downloadUrl) {
+    link.href=state.downloadUrl;
+    link.download=(state.jarFile?.name||'output').replace('.jar','_remastered.jar');
+    link.style.display='flex';
+    icon.className='dl-icon done';
+    icon.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="var(--g)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';
+    sub.textContent='JAR pronto para download';
+  } else {
+    link.style.display='none';
+    icon.className='dl-icon wait';
+    icon.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="#44446a" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+    sub.textContent='Processamento necessário';
+  }
+}
+
+// ─── PRÉ-CLASSIFICAÇÃO POR NOME (hint inicial, sobrescrita pelo conteúdo) ─────
+function preClassifyByName(name) {
+  const n = name.toLowerCase();
+  if(/font|\.fnt|text|menu|hud|icon|gui|interface|logo|title|tooltip|label|button|cursor/.test(n)) return 'ui';
+  if(/bg|background|map|tile|scene|level|terrain|sky|floor|wall/.test(n)) return 'background';
+  if(/icon|favicon|app_icon|launcher/.test(n)) return 'icon';
+  return 'sprite';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  DEEP SCAN DO JAR — magic bytes em todos os arquivos
+// ═══════════════════════════════════════════════════════════════════════════════
+async function handleFileUpload(file) {
+  if(!file||!file.name.toLowerCase().endsWith('.jar')) { addLog('❌ Arquivo inválido', 'error'); return; }
+  state.jarFile=file; state.downloadUrl=null; setStatus('busy');
+  addLog('📦 Abrindo JAR: '+file.name, 'info');
+  document.getElementById('uploadName').textContent=file.name;
+
+  try {
+    const data = await file.arrayBuffer();
+    state.zip = await JSZip.loadAsync(data);
+    const entries = Object.keys(state.zip.files).filter(n => !state.zip.files[n].dir);
+    addLog('🔬 Deep Scan iniciado — verificando '+entries.length+' entradas por magic bytes…', 'info');
+
+    const assets = [];
+    const stats = { sprite:0, background:0, text:0, ui:0, icon:0, skip:0 };
+
+    // Paralelizar o scan em lotes de 20
+    const BATCH = 20;
+    for(let i=0; i<entries.length; i+=BATCH) {
+      const batch = entries.slice(i, i+BATCH);
+      await Promise.all(batch.map(async name => {
+        try {
+          const buf = await state.zip.files[name].async('arraybuffer');
+          const fmt = detectImageByMagicBytes(buf);
+          if(!fmt) return; // não é imagem
+          if(!DECODABLE_FORMATS.has(fmt)) {
+            // DDS, TGA, PCX, etc: tentar mesmo assim mas marcar
+            stats.skip++;
+            assets.push({ name, selected:false, category:preClassifyByName(name), format:fmt, contentCategory:'skip' });
+            return;
+          }
+          const nameHint = preClassifyByName(name);
+          assets.push({ name, selected:true, category:nameHint, format:fmt, contentCategory:null });
+        } catch(e) { /* ignorar arquivo corrompido */ }
+      }));
+    }
+
+    // Ordenar: primeiro sprites/backgrounds, depois o resto
+    assets.sort((a,b) => {
+      const order = { sprite:0, background:1, ui:2, text:3, icon:4, skip:5 };
+      return (order[a.category]||0)-(order[b.category]||0);
+    });
+
+    state.assets = assets;
+    state.scanStats = stats;
+
+    // Contagem preliminar por nome
+    assets.forEach(a => {
+      if(a.contentCategory==='skip') return;
+      const k = a.category;
+      if(stats[k]!==undefined) stats[k]++;
+      else stats.sprite++;
+    });
+
+    addLog('✅ Deep Scan completo — '+assets.length+' imagens detectadas por magic bytes', 'success');
+    addLog('📊 Por tipo: '+assets.filter(a=>a.selected).length+' selecionados, '+
+      assets.filter(a=>!a.selected).length+' ignorados', 'info');
+
+    state.scanStats = stats;
+    renderScanStats();
+    renderAssets();
+    setStatus('ready');
+    document.getElementById('processBtn').disabled = false;
+    updateDownload();
+
+  } catch(err) {
+    addLog('❌ Erro ao abrir JAR: '+err.message, 'error');
+    setStatus('error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PROCESSAMENTO PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════════════════
+async function startProcessing() {
+  const selected = state.assets.filter(a => a.selected);
+  if(!selected.length || state.isProcessing) return;
+
+  state.isProcessing=true;
+  state.progress={current:0,total:selected.length};
+  state.downloadUrl=null;
+
+  document.getElementById('logWrap').innerHTML='';
+  setStatus('busy'); updateProgress(); updateDownload();
+  document.getElementById('processBtn').disabled=true;
+
+  const modeLabel = state.settings.scale===1 ? '1x SSAA' : state.settings.scale+'x Upscale';
+  addLog('🚀 Iniciando processamento '+modeLabel+' — '+selected.length+' assets…', 'info');
+
+  const numWorkers = Math.min(navigator.hardwareConcurrency||4, 4);
+  const workers = Array.from({length:numWorkers}, () => new Worker(WORKER_URL));
+  const newZip = new JSZip();
+  let completed=0;
+  const finalStats = { processed:0, preserved:0, failed:0 };
+  const catStats = { sprite:0, background:0, text:0, ui:0, icon:0 };
+
+  const processAsset = (asset, worker) => new Promise(async resolve => {
+    try {
+      if(asset.contentCategory==='skip' || !DECODABLE_FORMATS.has(asset.format||'png')) {
+        // Arquivo não processável: copiar intacto
+        const blob = await state.zip.files[asset.name].async('blob');
+        newZip.file(asset.name, blob);
+        addLog('⏭️ Copiado (formato não suportado): '+asset.name, 'skip');
+        completed++; state.progress.current=completed; updateProgress(); resolve(); return;
+      }
+      const buf = await state.zip.files[asset.name].async('arraybuffer');
+      const id = Math.random().toString(36).substring(7);
+      const handler = e => {
+        if(e.data.id!==id) return;
+        worker.removeEventListener('message',handler);
+        if(e.data.success) {
+          newZip.file(asset.name, e.data.buffer);
+          // Atualizar classificação com o resultado real do worker
+          asset.contentCategory = e.data.category;
+          if(catStats[e.data.category]!==undefined) catStats[e.data.category]++;
+          if(e.data.preserved) {
+            finalStats.preserved++;
+            addLog('🔒 Preservado ['+e.data.category.toUpperCase()+']: '+asset.name, 'skip');
+          } else {
+            finalStats.processed++;
+            const dims = e.data.width+'x'+e.data.height;
+            addLog('✅ ['+e.data.category.toUpperCase()+'] '+asset.name+' → '+dims, 'success');
+          }
+        } else {
+          const blob2 = state.zip.files[asset.name].async('blob').then(b=>newZip.file(asset.name,b));
+          finalStats.failed++;
+          addLog('⚠️ '+asset.name+': '+e.data.error, 'warning');
+        }
+        completed++; state.progress.current=completed; updateProgress(); resolve();
+      };
+      worker.addEventListener('message',handler);
+      worker.postMessage({
+        imageBuffer: buf,
+        settings: state.settings,
+        id,
+        category: asset.category // hint de nome para o worker
+      }, [buf]);
+    } catch(err) {
+      addLog('❌ Falha: '+asset.name+' — '+err.message, 'error');
+      finalStats.failed++;
+      completed++; state.progress.current=completed; updateProgress(); resolve();
+    }
+  });
+
+  try {
+    const batches = selected.map((a,i) => processAsset(a, workers[i%numWorkers]));
+    await Promise.all(batches);
+
+    // Copiar arquivos não-imagem
+    for(const name of Object.keys(state.zip.files)) {
+      if(!newZip.files[name] && !state.zip.files[name].dir) {
+        const b = await state.zip.files[name].async('blob');
+        newZip.file(name, b);
+      }
+    }
+
+    const outBlob = await newZip.generateAsync({type:'blob'});
+    if(state.downloadUrl) URL.revokeObjectURL(state.downloadUrl);
+    state.downloadUrl = URL.createObjectURL(outBlob);
+
+    addLog('🎉 Concluído! Processados: '+finalStats.processed+' · Preservados: '+finalStats.preserved+' · Falhas: '+finalStats.failed, 'success');
+
+    // Atualizar stats finais
+    state.scanStats = catStats;
+    renderScanStats();
+    renderAssets();
+    updateDownload();
+
+  } catch(err) {
+    addLog('❌ Erro no processamento: '+err.message, 'error');
+  } finally {
+    state.isProcessing=false;
+    setStatus('ready');
+    workers.forEach(w=>w.terminate());
+    document.getElementById('processBtn').disabled=false;
+    updateProgress();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  EVENTOS DOM
+// ═══════════════════════════════════════════════════════════════════════════════
+document.getElementById('fileInput').addEventListener('change', e => {
+  if(e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+});
+
+const zone = document.getElementById('uploadZone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('dragover');
+  if(e.dataTransfer.files[0]) handleFileUpload(e.dataTransfer.files[0]);
+});
+
+document.getElementById('scaleSelect').addEventListener('change', e => {
+  state.settings.scale = Number(e.target.value);
+});
+document.getElementById('sharpenRange').addEventListener('input', e => {
+  state.settings.sharpen=Number(e.target.value);
+  document.getElementById('sharpenVal').textContent=e.target.value;
+});
+document.getElementById('blendRange').addEventListener('input', e => {
+  state.settings.blendXbrz=Number(e.target.value);
+  document.getElementById('blendVal').textContent=e.target.value;
+});
+document.getElementById('haloRange').addEventListener('input', e => {
+  state.settings.haloRadius=Number(e.target.value);
+  document.getElementById('haloVal').textContent=e.target.value;
+});
+document.getElementById('advBtn').addEventListener('click', () => {
+  const c=document.getElementById('advContent');
+  c.classList.toggle('open');
+  document.querySelector('.adv-chevron').classList.toggle('open');
+});
+document.getElementById('processBtn').addEventListener('click', startProcessing);
+document.getElementById('clearLogs').addEventListener('click', () => {
+  document.getElementById('logWrap').innerHTML='<div class="log-empty">Aguardando operações…</div>';
+});
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if(state.downloadUrl) URL.revokeObjectURL(state.downloadUrl);
+  Object.assign(state,{jarFile:null,zip:null,assets:[],downloadUrl:null,isProcessing:false,scanStats:{sprite:0,background:0,text:0,ui:0,icon:0,skip:0}});
+  document.getElementById('uploadName').textContent='Clique ou arraste o arquivo';
+  document.getElementById('fileInput').value='';
+  document.getElementById('logWrap').innerHTML='<div class="log-empty">Aguardando operações…</div>';
+  document.getElementById('processBtn').disabled=true;
+  document.getElementById('scanStatsCard').style.display='none';
+  setStatus('ready'); renderAssets(); updateDownload(); updateProgress();
+});
+
+// ── TOGGLES ──
+function makeToggle(id, key) {
+  const btn = document.getElementById(id);
+  btn.addEventListener('click', () => {
+    btn.classList.toggle('on');
+    state.settings[key] = btn.classList.contains('on');
+  });
+  state.settings[key] = true;
+}
+makeToggle('toggleAntiHalo','antiHalo');
+makeToggle('toggleDebanding','debanding');
+makeToggle('toggleOled','oled');
+makeToggle('toggleLcd','lcd');
+makeToggle('togglePalette','paletteSnap');
+makeToggle('toggleAA','aaReconstruct');
+
+renderAssets(); updateDownload();
+</script>
+</body>
+</html>
